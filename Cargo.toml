@@ -1,0 +1,17 @@
+[package]
+name = "csvparser"
+version = "0.1.0"
+authors = ["guillaume1.gomez@gmail.com"]
+
+description = "CSV parser written in Rust"
+repository = "https://github.com/GuillaumeGomez/csv-parser.git"
+license = "MIT"
+
+[dependencies]
+libc = "*"
+nom = "*"
+
+[lib]
+name = "csvparser"
+crate_type = ["rlib"]
+path = "src/lib.rs"
