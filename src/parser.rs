@@ -1,25 +1,20 @@
-use nom::{IResult, not_line_ending, line_ending};
+use nom::*;
 
 // http://rust.unhandledexpression.com/nom/macro.escaped!.html
 // http://rust.unhandledexpression.com/nom/
 // https://fr.wikipedia.org/wiki/Comma-separated_values
 // https://github.com/Geal/nom/wiki/Making-a-new-parser-from-scratch
 // https://github.com/Geal/nom
-fn csv_line(input: &[u8]) -> IResult<&[u8], Vec<&[u8]>> {
-    terminated!(input, separated_list!(is_not_bytes!(&b"\n\r,"[..]), not_line_ending), line_ending)
-}
-
-fn parse_string_between_quotes(input: &str) {
-    
-}
-
-fn get_data(input: &str) -> Vec<Vec<String>> {
-
-}
+// http://rust.unhandledexpression.com/nom/macro.escaped!.html
+named!(string_between_quotes, delimited!(char!('\"'), is_not!("\""), char!('\"')));
 
 #[test]
 fn check_file() {
-    let f = b"nom,age\ncarles,30\nlaure,28";
+    let f = b"\"nom\",age\ncarles,30\nlaure,28";
 
-    csv_line(f);
+    match string_between_quotes(f) {
+        IResult::Done(_, out) => assert_eq!(out, b"nom"),
+        IResult::Incomplete(x) => panic!("incomplete: {:?}", x),
+        IResult::Error(e) => panic!("error: {:?}", e),
+    }
 }
