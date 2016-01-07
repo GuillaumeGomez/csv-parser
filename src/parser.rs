@@ -8,12 +8,16 @@ use std::str;
 // https://github.com/Geal/nom
 // http://rust.unhandledexpression.com/nom/macro.escaped!.html
 named!(string_between_quotes, delimited!(char!('\"'), is_not!("\""), char!('\"')));
-named!(get_cell, take_until!(","));
+named!(get_cell, take_while!(is_not_cell_end));
 named!(get_line, take_until!("\n"));
 named!(consume_useless_chars, take_while!(is_whitespace));
 
 fn is_whitespace(c: u8) -> bool {
     c as char == ' ' || c as char == '\t'
+}
+
+fn is_not_cell_end(c: u8) -> bool {
+    c as char != ',' && c as char != '\n'
 }
 
 fn get_column_value<'a>(entry: &'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
@@ -23,12 +27,13 @@ fn get_column_value<'a>(entry: &'a [u8]) -> IResult<&'a [u8], &'a [u8]> {
                 IResult::Done(b"", b"")
             } else if out[0] as char == '\"' {
                 match string_between_quotes(out) {
-                    IResult::Done(i, _) => {
+                    IResult::Done(i, out) => {
                         match consume_useless_chars(i) {
                             IResult::Done(i, _) => {
-                                match get_cell(i) {
-                                    IResult::Done(i, _) => IResult::Done(i, out),
-                                    // should return the input and keep the out
+                                if is_not_cell_end(i[0]) {
+                                    panic!("Expected `,`, found `{}`", i[0] as char)
+                                } else {
+                                    IResult::Done(i, out)
                                 }
                             }
                             x => x,
@@ -55,7 +60,14 @@ fn get_line_values<'a>(ret: &mut Vec<String>, entry: &'a [u8]) -> IResult<&'a [u
                 if let Ok(s) = str::from_utf8(out) {
                     ret.push(s.to_owned());
                 }
-                get_line_values(ret, in_)
+                if in_.len() > 0 && in_[0] as char != '\n' {
+                    match take!(in_, 1) {
+                        IResult::Done(in_, _) => get_line_values(ret, in_),
+                        x => x,
+                    }
+                } else {
+                    IResult::Done(b"", b"")
+                }
             }
         }
         ref n if n.is_incomplete() => {
@@ -86,14 +98,20 @@ fn get_lines_values(ret: &mut Vec<Vec<String>>, entry: &[u8]) {
                 return;
             }
             ret.push(line);
-            get_lines_values(ret, in_)
+            if in_.len() > 0 && in_[0] as char == '\n' {
+                match take!(in_, 1) {
+                    IResult::Done(in_, _) => get_lines_values(ret, in_),
+                    _ => {},
+                }
+                get_lines_values(ret, in_)
+            }
         }
         _ => {}
     }
 }
 
 #[test]
-fn check_file() {
+fn check_string_between_quotes() {
     let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
 
     match string_between_quotes(f) {
@@ -107,7 +125,24 @@ fn check_file() {
 }
 
 #[test]
-fn check_line() {
+fn check_get_cell() {
+    let f = b"age\ncarles,30\n";
+    let g = b"age2,carles,30\n";
+
+    match get_cell(f) {
+        IResult::Done(_, out) => assert_eq!(out, b"age"),
+        IResult::Incomplete(x) => panic!("incomplete: {:?}", x),
+        IResult::Error(e) => panic!("error: {:?}", e),
+    }
+    match get_cell(g) {
+        IResult::Done(_, out) => assert_eq!(out, b"age2"),
+        IResult::Incomplete(x) => panic!("incomplete: {:?}", x),
+        IResult::Error(e) => panic!("error: {:?}", e),
+    }
+}
+
+#[test]
+fn check_get_line() {
     let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
 
     match get_line(f) {
@@ -118,10 +153,22 @@ fn check_line() {
 }
 
 #[test]
-fn check_get_line() {
+fn check_get_line_values() {
     let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
     let mut cells = vec!();
 
     get_line_values(&mut cells, f);
     assert_eq!(cells, vec!("nom".to_owned(), "age".to_owned()));
+}
+
+#[test]
+fn check_get_lines_values() {
+    let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
+    let mut cells = vec!();
+
+    get_lines_values(&mut cells, f);
+    assert_eq!(cells, vec!(
+                           vec!("nom".to_owned(), "age".to_owned()),
+                           vec!("carles".to_owned(), "30".to_owned()),
+                           vec!("laure".to_owned(), "28".to_owned())));
 }
