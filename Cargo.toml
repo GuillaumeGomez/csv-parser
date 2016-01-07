@@ -12,6 +12,6 @@ libc = "*"
 nom = "~1.0.0"
 
 [lib]
-name = "csvparser"
+name = "csv_parser"
 crate_type = ["rlib"]
 path = "src/lib.rs"
