@@ -44,32 +44,6 @@ fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvErr
     } else {
       IResult::Done(i, cell)
     }
-
-    /*match consume_useless_chars(entry) {
-        IResult::Done(out, _) => {
-            if out.len() < 1 {
-                Ok(IResult::Done(b"", b""))
-            } else if out[0] as char == '\"' {
-                match string_between_quotes(out) {
-                    IResult::Done(i, out) => {
-                        if is_not_cell_end(i[0]) {
-                            Err(CsvError::InvalidCharacter(CharError::new(',', i[0] as char, &pos)))
-                            //panic!("Expected `,`, found `{}`", i[0] as char)
-                        } else {
-                            Ok(IResult::Done(i, out))
-                        }
-                    }
-                    x => Ok(x),
-                }
-            } else if out[0] as char == '\n' {
-                Ok(IResult::Done(b"", b""))
-            } else {
-                Ok(get_cell(out))
-            }
-        },
-        x => Ok(x),
-    }*/
-
 }
 
 fn get_string_column_value(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvError> {
@@ -116,47 +90,6 @@ fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IRe
             IResult::Error(e)      => IResult::Error(e)
         }
     }
-
-        /*
-        match get_column_value(entry, Position::new(line, ret.len())) {
-          IResult::Done(in_, out) => {
-                if out.len() < 1 && in_.len() < 1 {
-                    ret.push(String::new());
-                    IResult::Done(b"", b"")
-                } else {
-                    if let Ok(s) = str::from_utf8(out) {
-                        ret.push(s.to_owned());
-                    }
-                    if in_.len() > 0 && in_[0] as char != '\n' {
-                        match fix_error!(in_, CsvError, take!(1)) {
-                            IResult::Done(in_, _) => get_line_values(ret, in_, line),
-                            x => x,
-                        }
-                    } else {
-                        IResult::Done(b"", b"")
-                    }
-                }
-            }
-            x => x
-              */
-            /*
-            n if n.is_incomplete() => {
-                if let Some(out) = n.remaining_input() {
-                    if out.len() < 1 {
-                        Ok(IResult::Done(b"", b""))
-                    } else {
-                        if let Ok(s) = str::from_utf8(out) {
-                            ret.push(s.to_owned());
-                        }
-                        Ok(IResult::Done(b"", b""))
-                    }
-                } else {
-                    Ok(IResult::Done(b"", b""))
-                }
-            }
-            x => Ok(x),
-            */
-       // }
 }
 
 
@@ -184,36 +117,6 @@ fn get_lines_values(mut ret: Vec<Vec<String>>, entry: &[u8]) -> Result<Vec<Vec<S
     }
 
     Ok(ret)
-    /*match get_line(entry) {
-        IResult::Done(in_, out) => {
-            let mut line = vec!();
-
-            match get_line_values(&mut line, out, ret.len()) {
-                Err(e) => return Err(e),
-                _ => {}
-            }
-            // we stop at first empty line
-            if line.len() < 1 {
-                return Ok(ret)
-            }
-            if ret.len() > 0 && line.len() != ret[0].len() {
-                panic!("Line `{}` has `{}` value{}, `{}` {} expected.",
-                       ret.len(), line.len(), if line.len() > 1 { "s" } else { "" },
-                       ret[0].len(), if ret[0].len() > 1 { "were" } else { "was" });
-            }
-            ret.push(line);
-            if in_.len() > 0 && in_[0] as char == '\n' {
-                match take!(in_, 1) {
-                    IResult::Done(in_, _) => get_lines_values(ret, in_),
-                    _ => Ok(ret),
-                }
-            } else {
-                Ok(ret)
-            }
-        }
-        _ => Ok(ret),
-    }
-    */
 }
 
 pub fn parse_csv_from_slice(entry: &[u8]) -> Result<Vec<Vec<String>>, CsvError> {
