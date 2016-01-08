@@ -19,8 +19,33 @@ fn is_not_cell_end(c: u8) -> bool {
     c as char != ',' && c as char != '\n'
 }
 
-fn get_column_value<'a>(entry: &'a [u8], pos: Position) -> Result<IResult<&'a [u8], &'a [u8]>, CsvError> {
-    match consume_useless_chars(entry) {
+
+
+fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvError> {
+    let (i, cell) = try_parse!(input,
+        fix_error!(CsvError,
+            preceded!(
+            consume_useless_chars,
+                alt!(
+                    string_between_quotes
+                  | get_cell
+                )
+            )
+        )
+    );
+
+    if i.len() == 0 {
+        IResult::Incomplete(Needed::Unknown)
+    } else if is_not_cell_end(i[0]) {
+      let p = Position { line: pos.line, column: pos.column + input.offset(i) };
+        IResult::Error(Err::Code(ErrorKind::Custom(
+            CsvError::InvalidCharacter(CharError::new(',', i[0] as char, &p))
+        )))
+    } else {
+      IResult::Done(i, cell)
+    }
+
+    /*match consume_useless_chars(entry) {
         IResult::Done(out, _) => {
             if out.len() < 1 {
                 Ok(IResult::Done(b"", b""))
@@ -43,53 +68,52 @@ fn get_column_value<'a>(entry: &'a [u8], pos: Position) -> Result<IResult<&'a [u
             }
         },
         x => Ok(x),
-    }
+    }*/
+
 }
 
 fn get_line_values<'a>(ret: &mut Vec<String>, entry: &'a [u8],
-    line: usize) -> Result<IResult<&'a [u8], &'a [u8]>, CsvError> {
+    line: usize) -> Result<IResult<&'a [u8], &'a [u8], CsvError>, CsvError> {
     if entry.len() < 1 {
         Ok(IResult::Done(b"", b""))
     } else {
         match get_column_value(entry, Position::new(line, ret.len())) {
-            Ok(r) => {
-                match r {
-                    IResult::Done(in_, out) => {
-                        if out.len() < 1 && in_.len() < 1 {
-                            ret.push(String::new());
-                            Ok(IResult::Done(b"", b""))
-                        } else {
-                            if let Ok(s) = str::from_utf8(out) {
-                                ret.push(s.to_owned());
-                            }
-                            if in_.len() > 0 && in_[0] as char != '\n' {
-                                match take!(in_, 1) {
-                                    IResult::Done(in_, _) => get_line_values(ret, in_, line),
-                                    x => Ok(x),
-                                }
-                            } else {
-                                Ok(IResult::Done(b"", b""))
-                            }
-                        }
+          IResult::Done(in_, out) => {
+                if out.len() < 1 && in_.len() < 1 {
+                    ret.push(String::new());
+                    Ok(IResult::Done(b"", b""))
+                } else {
+                    if let Ok(s) = str::from_utf8(out) {
+                        ret.push(s.to_owned());
                     }
-                    ref n if n.is_incomplete() => {
-                        if let Some(out) = n.remaining_input() {
-                            if out.len() < 1 {
-                                Ok(IResult::Done(b"", b""))
-                            } else {
-                                if let Ok(s) = str::from_utf8(out) {
-                                    ret.push(s.to_owned());
-                                }
-                                Ok(IResult::Done(b"", b""))
-                            }
-                        } else {
-                            Ok(IResult::Done(b"", b""))
+                    if in_.len() > 0 && in_[0] as char != '\n' {
+                        match fix_error!(in_, CsvError, take!(1)) {
+                            IResult::Done(in_, _) => get_line_values(ret, in_, line),
+                            x => Ok(x),
                         }
+                    } else {
+                        Ok(IResult::Done(b"", b""))
                     }
-                    x => Ok(x),
                 }
-            },
-            val => val,
+            }
+            x => Ok(x)
+            /*
+            n if n.is_incomplete() => {
+                if let Some(out) = n.remaining_input() {
+                    if out.len() < 1 {
+                        Ok(IResult::Done(b"", b""))
+                    } else {
+                        if let Ok(s) = str::from_utf8(out) {
+                            ret.push(s.to_owned());
+                        }
+                        Ok(IResult::Done(b"", b""))
+                    }
+                } else {
+                    Ok(IResult::Done(b"", b""))
+                }
+            }
+            x => Ok(x),
+            */
         }
     }
 }
