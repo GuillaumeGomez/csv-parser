@@ -25,7 +25,7 @@ fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvErr
     let (i, cell) = try_parse!(input,
         fix_error!(CsvError,
             preceded!(
-            consume_useless_chars,
+            opt!(consume_useless_chars),
                 alt!(
                     string_between_quotes
                   | get_cell
