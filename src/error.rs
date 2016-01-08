@@ -6,6 +6,7 @@ use std::fmt;
 pub enum CsvError {
     InvalidCharacter(CharError),
     InvalidRowLength(SizeError),
+    GenericError
 }
 
 impl fmt::Display for CsvError {
@@ -16,6 +17,7 @@ impl fmt::Display for CsvError {
             CsvError::InvalidRowLength(ref c) => write!(f, "InvalidRowLength: {}: expected `{}` element{}, got `{}`",
                                                         c.position, c.nb_elements_expected,
                                                         if c.nb_elements_expected > 1 { "s" } else { "" }, c.nb_elements_got),
+            CsvError::GenericError            => write!(f, "GenericError")
         }
     }
 }
@@ -25,6 +27,7 @@ impl PartialEq for CsvError {
         match (self, other) {
             (&CsvError::InvalidCharacter(ref c), &CsvError::InvalidCharacter(ref o)) => c == o,
             (&CsvError::InvalidRowLength(ref c), &CsvError::InvalidRowLength(ref o)) => c == o,
+            (&CsvError::GenericError, &CsvError::GenericError)                       => true,
             _ => false,
         }
     }
@@ -39,6 +42,7 @@ impl Error for CsvError {
         match *self {
             CsvError::InvalidCharacter(_) => "invalid character",
             CsvError::InvalidRowLength(_) => "invalid row length",
+            CsvError::GenericError        => "generic parsing error"
         }
     }
 }
