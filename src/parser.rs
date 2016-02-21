@@ -72,14 +72,19 @@ fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IRe
         let (i, col) = try_parse!(entry, apply!(get_string_column_value, Position::new(line, ret.len())));
         ret.push(col);
 
-        match fix_error!(i, CsvError, terminated!(
+        match fix_error!(i, CsvError, separated_list!(
             many0!(
                 apply!(comma_then_column, Position::new(line, ret.len()))
             ),
             char!('\n')
         )) {
             IResult::Done(i, v)    => {
-                ret.extend(v);
+                let mut s = String::new();
+
+                for c in v {
+                    s.push(c);
+                }
+                ret.push(s);
                 IResult::Done(i, &entry[..entry.offset(i)])
             },
             IResult::Incomplete(i) => IResult::Incomplete(i),
