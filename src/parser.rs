@@ -1,6 +1,7 @@
 use std::str;
 use std::io::prelude::*;
 use std::fs::File;
+use std::str::from_utf8;
 
 use nom::*;
 
@@ -8,7 +9,6 @@ use error::*;
 
 named!(string_between_quotes, delimited!(char!('\"'), is_not!("\""), char!('\"')));
 named!(get_cell, take_while!(is_not_cell_end));
-named!(get_line, take_until!("\n"));
 named!(consume_useless_chars, take_while!(is_whitespace));
 
 fn is_whitespace(c: u8) -> bool {
@@ -18,8 +18,6 @@ fn is_whitespace(c: u8) -> bool {
 fn is_not_cell_end(c: u8) -> bool {
     c as char != ',' && c as char != '\n'
 }
-
-
 
 fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvError> {
     let (i, cell) = try_parse!(input,
@@ -37,12 +35,12 @@ fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvErr
     if i.len() == 0 {
         IResult::Incomplete(Needed::Unknown)
     } else if is_not_cell_end(i[0]) {
-      let p = Position { line: pos.line, column: pos.column + input.offset(i) };
+        let p = Position { line: pos.line, column: pos.column + input.offset(i) };
         IResult::Error(Err::Code(ErrorKind::Custom(
             CsvError::InvalidCharacter(CharError::new(',', i[0] as char, &p))
         )))
     } else {
-      IResult::Done(i, cell)
+        IResult::Done(i, cell)
     }
 }
 
@@ -60,7 +58,6 @@ fn get_string_column_value(input: &[u8], pos: Position) -> IResult<&[u8], String
     )
 }
 
-
 fn comma_then_column(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvError> {
     preceded!(input,
         fix_error!(CsvError, char!(',')),
@@ -68,7 +65,6 @@ fn comma_then_column(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvE
     )
 }
 
-use std::str::from_utf8;
 fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IResult<&'a[u8], &'a[u8], CsvError> {
     if entry.len() == 0 {
         IResult::Done(b"", b"")
@@ -82,16 +78,15 @@ fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IRe
             ),
             char!('\n')
         )) {
-            IResult::Done(i, v) => {
-              ret.extend(v);
-              IResult::Done(i, &entry[..entry.offset(i)])
+            IResult::Done(i, v)    => {
+                ret.extend(v);
+                IResult::Done(i, &entry[..entry.offset(i)])
             },
             IResult::Incomplete(i) => IResult::Incomplete(i),
             IResult::Error(e)      => IResult::Error(e)
         }
     }
 }
-
 
 fn get_lines_values(mut ret: Vec<Vec<String>>, entry: &[u8]) -> Result<Vec<Vec<String>>, CsvError> {
     let mut input = entry;
@@ -102,8 +97,8 @@ fn get_lines_values(mut ret: Vec<Vec<String>>, entry: &[u8]) -> Result<Vec<Vec<S
             IResult::Error(Err::Code(ErrorKind::Custom(e))) => return Err(e),
             IResult::Error(_)                               => return Err(CsvError::GenericError),
             IResult::Incomplete(_)                          => {
-              // we reached the end of file?
-              break
+                // did we reach the end of file?
+                break
             }
             IResult::Done(i,_)                              => {
                 input = i;
@@ -166,18 +161,6 @@ fn check_get_cell() {
     }
 }
 
-
-#[test]
-fn check_get_line() {
-    let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
-
-    match get_line(f) {
-        IResult::Done(_, out) => assert_eq!(out, b"\"nom\",age"),
-        IResult::Incomplete(x) => panic!("incomplete: {:?}", x),
-        IResult::Error(e) => panic!("error: {:?}", e),
-    }
-}
-
 #[test]
 fn check_get_line_values() {
     // no terminator, this is not a line
@@ -205,7 +188,6 @@ fn check_get_line_values() {
             CsvError::InvalidCharacter(CharError::new(',', ' ', &Position::new(0, 5)))
         )))
     );
-
 }
 
 #[test]
