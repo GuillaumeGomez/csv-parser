@@ -19,111 +19,104 @@ fn is_not_cell_end(c: u8) -> bool {
     c as char != ',' && c as char != '\n'
 }
 
-fn get_column_value<'a>(entry: &'a [u8], pos: Position) -> Result<IResult<&'a [u8], &'a [u8]>, CsvError> {
-    match consume_useless_chars(entry) {
-        IResult::Done(out, _) => {
-            if out.len() < 1 {
-                Ok(IResult::Done(b"", b""))
-            } else if out[0] as char == '\"' {
-                match string_between_quotes(out) {
-                    IResult::Done(i, out) => {
-                        if is_not_cell_end(i[0]) {
-                            Err(CsvError::InvalidCharacter(CharError::new(',', i[0] as char, &pos)))
-                            //panic!("Expected `,`, found `{}`", i[0] as char)
-                        } else {
-                            Ok(IResult::Done(i, out))
-                        }
-                    }
-                    x => Ok(x),
-                }
-            } else if out[0] as char == '\n' {
-                Ok(IResult::Done(b"", b""))
-            } else {
-                Ok(get_cell(out))
-            }
-        },
-        x => Ok(x),
+
+
+fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvError> {
+    let (i, cell) = try_parse!(input,
+        fix_error!(CsvError,
+            preceded!(
+            opt!(consume_useless_chars),
+                alt!(
+                    string_between_quotes
+                  | get_cell
+                )
+            )
+        )
+    );
+
+    if i.len() == 0 {
+        IResult::Incomplete(Needed::Unknown)
+    } else if is_not_cell_end(i[0]) {
+      let p = Position { line: pos.line, column: pos.column + input.offset(i) };
+        IResult::Error(Err::Code(ErrorKind::Custom(
+            CsvError::InvalidCharacter(CharError::new(',', i[0] as char, &p))
+        )))
+    } else {
+      IResult::Done(i, cell)
     }
 }
 
-fn get_line_values<'a>(ret: &mut Vec<String>, entry: &'a [u8],
-    line: usize) -> Result<IResult<&'a [u8], &'a [u8]>, CsvError> {
-    if entry.len() < 1 {
-        Ok(IResult::Done(b"", b""))
+fn get_string_column_value(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvError> {
+    map_res!(input,
+        map_res!(
+            dbg_dmp!(
+                apply!(get_column_value, Position::new(pos.line, pos.column))
+            ),
+            from_utf8
+        ),
+        |d| {
+            str::FromStr::from_str(d)
+        }
+    )
+}
+
+
+fn comma_then_column(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvError> {
+    preceded!(input,
+        fix_error!(CsvError, char!(',')),
+        apply!(get_string_column_value, Position::new(pos.line, pos.column))
+    )
+}
+
+use std::str::from_utf8;
+fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IResult<&'a[u8], &'a[u8], CsvError> {
+    if entry.len() == 0 {
+        IResult::Done(b"", b"")
     } else {
-        match get_column_value(entry, Position::new(line, ret.len())) {
-            Ok(r) => {
-                match r {
-                    IResult::Done(in_, out) => {
-                        if out.len() < 1 && in_.len() < 1 {
-                            ret.push(String::new());
-                            Ok(IResult::Done(b"", b""))
-                        } else {
-                            if let Ok(s) = str::from_utf8(out) {
-                                ret.push(s.to_owned());
-                            }
-                            if in_.len() > 0 && in_[0] as char != '\n' {
-                                match take!(in_, 1) {
-                                    IResult::Done(in_, _) => get_line_values(ret, in_, line),
-                                    x => Ok(x),
-                                }
-                            } else {
-                                Ok(IResult::Done(b"", b""))
-                            }
-                        }
-                    }
-                    ref n if n.is_incomplete() => {
-                        if let Some(out) = n.remaining_input() {
-                            if out.len() < 1 {
-                                Ok(IResult::Done(b"", b""))
-                            } else {
-                                if let Ok(s) = str::from_utf8(out) {
-                                    ret.push(s.to_owned());
-                                }
-                                Ok(IResult::Done(b"", b""))
-                            }
-                        } else {
-                            Ok(IResult::Done(b"", b""))
-                        }
-                    }
-                    x => Ok(x),
-                }
+        let (i, col) = try_parse!(entry, apply!(get_string_column_value, Position::new(line, ret.len())));
+        ret.push(col);
+
+        match fix_error!(i, CsvError, terminated!(
+            many0!(
+                apply!(comma_then_column, Position::new(line, ret.len()))
+            ),
+            char!('\n')
+        )) {
+            IResult::Done(i, v) => {
+              ret.extend(v);
+              IResult::Done(i, &entry[..entry.offset(i)])
             },
-            val => val,
+            IResult::Incomplete(i) => IResult::Incomplete(i),
+            IResult::Error(e)      => IResult::Error(e)
         }
     }
 }
+
 
 fn get_lines_values(mut ret: Vec<Vec<String>>, entry: &[u8]) -> Result<Vec<Vec<String>>, CsvError> {
-    match get_line(entry) {
-        IResult::Done(in_, out) => {
-            let mut line = vec!();
-
-            match get_line_values(&mut line, out, ret.len()) {
-                Err(e) => return Err(e),
-                _ => {}
+    let mut input = entry;
+    let mut line  = 0;
+    loop {
+        let mut v: Vec<String> = Vec::new();
+        match get_line_values(input, &mut v, line) {
+            IResult::Error(Err::Code(ErrorKind::Custom(e))) => return Err(e),
+            IResult::Error(_)                               => return Err(CsvError::GenericError),
+            IResult::Incomplete(_)                          => {
+              // we reached the end of file?
+              break
             }
-            // we stop at first empty line
-            if line.len() < 1 {
-                return Ok(ret)
-            }
-            if ret.len() > 0 && line.len() != ret[0].len() {
-                panic!("Line `{}` has `{}` value{}, `{}` {} expected.",
-                       ret.len(), line.len(), if line.len() > 1 { "s" } else { "" },
-                       ret[0].len(), if ret[0].len() > 1 { "were" } else { "was" });
-            }
-            ret.push(line);
-            if in_.len() > 0 && in_[0] as char == '\n' {
-                match take!(in_, 1) {
-                    IResult::Done(in_, _) => get_lines_values(ret, in_),
-                    _ => Ok(ret),
+            IResult::Done(i,_)                              => {
+                input = i;
+                line += 1;
+                ret.push(v);
+                if input.len() == 0 {
+                    break;
                 }
-            } else {
-                Ok(ret)
-            }
+            },
         }
-        _ => Ok(ret),
     }
+
+    Ok(ret)
 }
 
 pub fn parse_csv_from_slice(entry: &[u8]) -> Result<Vec<Vec<String>>, CsvError> {
@@ -173,6 +166,7 @@ fn check_get_cell() {
     }
 }
 
+
 #[test]
 fn check_get_line() {
     let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
@@ -186,25 +180,32 @@ fn check_get_line() {
 
 #[test]
 fn check_get_line_values() {
+    // no terminator, this is not a line
+    //let mut cells = vec!();
+    //get_line_values(&mut cells, b"\"nom\",,age", 0);
+    //assert_eq!(cells, vec!("nom".to_owned(), "".to_owned(), "age".to_owned()));
+
     let mut cells = vec!();
-    get_line_values(&mut cells, b"\"nom\",,age", 0).unwrap();
+    let res = get_line_values(b"\"nom\",,age\n", &mut cells, 0);
+    println!("res: {:?}", res);
     assert_eq!(cells, vec!("nom".to_owned(), "".to_owned(), "age".to_owned()));
 
     let mut cells = vec!();
-    get_line_values(&mut cells, b"\"nom\",,age\n", 0).unwrap();
-    assert_eq!(cells, vec!("nom".to_owned(), "".to_owned(), "age".to_owned()));
-
-    let mut cells = vec!();
-    get_line_values(&mut cells, b"\"nom\",age,\n", 0).unwrap();
+    get_line_values(b"\"nom\",age,\n", &mut cells, 0);
     assert_eq!(cells, vec!("nom".to_owned(), "age".to_owned(), "".to_owned()));
 
     let mut cells = vec!();
-    get_line_values(&mut cells, b"\"nom\",age,,\"hoho\",,end\n", 0).unwrap();
+    get_line_values(b"\"nom\",age,,\"hoho\",,end\n", &mut cells, 0);
     assert_eq!(cells, vec!("nom".to_owned(), "age".to_owned(), "".to_owned(), "hoho".to_owned(), "".to_owned(), "end".to_owned()));
 
     let mut cells = vec!();
-    let e = get_line_values(&mut cells, b"\"nom\" ,age,\"hoho\"", 0);
-    assert_eq!(e, Err(CsvError::InvalidCharacter(CharError::new(',', ' ', &Position::new(0, 0)))));
+    let e = get_line_values(b"\"nom\" ,age,\"hoho\"", &mut cells, 0);
+    assert_eq!(e,
+        IResult::Error(Err::Code(ErrorKind::Custom(
+            CsvError::InvalidCharacter(CharError::new(',', ' ', &Position::new(0, 5)))
+        )))
+    );
+
 }
 
 #[test]

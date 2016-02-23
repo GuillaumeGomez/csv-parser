@@ -9,7 +9,7 @@ license = "MIT"
 
 [dependencies]
 libc = "*"
-nom = "~1.0.0"
+nom = "~1.1.0"
 
 [lib]
 name = "csv_parser"
