@@ -13,43 +13,44 @@ named!(consume_useless_chars, take_while!(is_whitespace));
 
 macro_rules! separated_list2 (
   ($i:expr, $sep:ident!( $($args:tt)* ), $submac:ident!( $($args2:tt)* )) => ( 
-    {    
+    {
       let mut res   = ::std::vec::Vec::new();
       let mut input = $i;
 
       // get the first element
       let first = $submac!(input, $($args2)*);
-      
-      if let IResult::Done(i,o) = first {
+
+      if let IResult::Done(i, o) = first {
          if i.len() == input.len() {
             let err : IResult<&[u8], Vec<Vec<String>>, CsvError> = IResult::Error(Err::Position(ErrorKind::SeparatedList, input)); err
           } else {
             res.push(o);
-            input = i; 
+            input = i;
 
             loop {
               // get the separator first
               if let IResult::Done(i2,_) = $sep!(input, $($args)*) {
+                println!("{:?}", String::from_utf8_lossy(i2));
                 if i2.len() == input.len() {
                   break;
-                }    
+                }
                 input = i2;
 
                 // get the element next
                 if let IResult::Done(i3,o3) = $submac!(input, $($args2)*) {
-                  if i3.len() == input.len() {
-                    break;
-                  }    
                   res.push(o3);
                   input = i3;
+                  if i3.len() == input.len() {
+                    break;
+                  }
                 } else {
                   break;
-                }    
+                }
               } else {
                 break;
-              }    
-            }    
-            IResult::Done(input, res) 
+              }
+            }
+            IResult::Done(input, res)
           }
       } else if let IResult::Incomplete(i) = first {
         IResult::Incomplete(i)
@@ -83,15 +84,15 @@ fn get_column_value(input: &[u8], pos: Position) -> IResult<&[u8], &[u8], CsvErr
             preceded!(
             opt!(consume_useless_chars),
                 alt!(
-                    string_between_quotes
-                  | get_cell
+                    string_between_quotes | get_cell
                 )
             )
         )
     );
 
     if i.len() == 0 {
-        IResult::Incomplete(Needed::Unknown)
+        //IResult::Incomplete(Needed::Unknown)
+        IResult::Done(i, cell)
     } else if is_not_cell_end(i[0]) {
         let p = Position { line: pos.line, column: pos.column + input.offset(i) };
         IResult::Error(Err::Code(ErrorKind::Custom(
@@ -142,6 +143,7 @@ fn get_line_values<'a>(entry: &'a[u8], ret: &mut Vec<String>, line: usize) -> IR
             apply!(many_comma_then_column, Position::new(line, ret.len()))
         )) {
             IResult::Done(i, v)    => {
+                let v : Vec<Vec<String>> = v;
                 for c in v {
                     for sub_c in c {
                         ret.push(sub_c);
