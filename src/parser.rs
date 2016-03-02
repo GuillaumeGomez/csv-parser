@@ -11,6 +11,64 @@ named!(string_between_quotes, delimited!(char!('\"'), is_not!("\""), char!('\"')
 named!(get_cell, take_while!(is_not_cell_end));
 named!(consume_useless_chars, take_while!(is_whitespace));
 
+macro_rules! separated_list2 (
+  ($i:expr, $sep:ident!( $($args:tt)* ), $submac:ident!( $($args2:tt)* )) => ( 
+    {    
+      let mut res   = ::std::vec::Vec::new();
+      let mut input = $i;
+
+      // get the first element
+      let first = $submac!(input, $($args2)*);
+      
+      if let IResult::Done(i,o) = first {
+         if i.len() == input.len() {
+            let err : IResult<&[u8], Vec<Vec<String>>, CsvError> = IResult::Error(Err::Position(ErrorKind::SeparatedList, input)); err
+          } else {
+            res.push(o);
+            input = i; 
+
+            loop {
+              // get the separator first
+              if let IResult::Done(i2,_) = $sep!(input, $($args)*) {
+                if i2.len() == input.len() {
+                  break;
+                }    
+                input = i2;
+
+                // get the element next
+                if let IResult::Done(i3,o3) = $submac!(input, $($args2)*) {
+                  if i3.len() == input.len() {
+                    break;
+                  }    
+                  res.push(o3);
+                  input = i3;
+                } else {
+                  break;
+                }    
+              } else {
+                break;
+              }    
+            }    
+            IResult::Done(input, res) 
+          }
+      } else if let IResult::Incomplete(i) = first {
+        IResult::Incomplete(i)
+      } else {
+        IResult::Done(input, ::std::vec::Vec::new())
+      }
+    }
+  );
+  ($i:expr, $submac:ident!( $($args:tt)* ), $g:expr) => (
+    separated_list!($i, $submac!($($args)*), call!($g));
+  );
+  ($i:expr, $f:expr, $submac:ident!( $($args:tt)* )) => (
+    separated_list!($i, call!($f), $submac!($($args)*));
+  );
+  ($i:expr, $f:expr, $g:expr) => (
+    separated_list!($i, call!($f), call!($g));
+  );
+);
+
 fn is_whitespace(c: u8) -> bool {
     c as char == ' ' || c as char == '\t'
 }
@@ -58,33 +116,37 @@ fn get_string_column_value(input: &[u8], pos: Position) -> IResult<&[u8], String
     )
 }
 
-fn comma_then_column(input: &[u8], pos: Position) -> IResult<&[u8], String, CsvError> {
+fn comma_then_column<'a>(input: &'a [u8], pos: &Position) -> IResult<&'a [u8], String, CsvError> {
     preceded!(input,
         fix_error!(CsvError, char!(',')),
         apply!(get_string_column_value, Position::new(pos.line, pos.column))
     )
 }
 
-fn get_line_values<'a>(entry: &'a[u8],ret: &mut Vec<String>, line: usize) -> IResult<&'a[u8], &'a[u8], CsvError> {
+fn many_comma_then_column(input: &[u8], pos: Position) -> IResult<&[u8], Vec<String>, CsvError> {
+    many0!(
+        input,
+        apply!(comma_then_column, &pos)
+    )
+}
+
+fn get_line_values<'a>(entry: &'a[u8], ret: &mut Vec<String>, line: usize) -> IResult<&'a[u8], &'a[u8], CsvError> {
     if entry.len() == 0 {
-        IResult::Done(b"", b"")
+        IResult::Done(entry, entry)
     } else {
         let (i, col) = try_parse!(entry, apply!(get_string_column_value, Position::new(line, ret.len())));
         ret.push(col);
 
-        match fix_error!(i, CsvError, separated_list!(
-            many0!(
-                apply!(comma_then_column, Position::new(line, ret.len()))
-            ),
-            char!('\n')
+        match fix_error!(i, CsvError, separated_list2!(
+            char!('\n'),
+            apply!(many_comma_then_column, Position::new(line, ret.len()))
         )) {
             IResult::Done(i, v)    => {
-                let mut s = String::new();
-
                 for c in v {
-                    s.push(c);
+                    for sub_c in c {
+                        ret.push(sub_c);
+                    }
                 }
-                ret.push(s);
                 IResult::Done(i, &entry[..entry.offset(i)])
             },
             IResult::Incomplete(i) => IResult::Incomplete(i),
@@ -198,6 +260,13 @@ fn check_get_line_values() {
 #[test]
 fn check_get_lines_values() {
     let f = b"\"nom\",age\ncarles,30\nlaure,28\n";
+
+    assert_eq!(get_lines_values(vec!(), f),
+               Ok(vec!(
+                       vec!("nom".to_owned(), "age".to_owned()),
+                       vec!("carles".to_owned(), "30".to_owned()),
+                       vec!("laure".to_owned(), "28".to_owned()))));
+    let f = b"\"nom\",age\ncarles,30\nlaure,28";
 
     assert_eq!(get_lines_values(vec!(), f),
                Ok(vec!(
