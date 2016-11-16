@@ -30,7 +30,6 @@ macro_rules! separated_list2 (
             loop {
               // get the separator first
               if let IResult::Done(i2,_) = $sep!(input, $($args)*) {
-                println!("{:?}", String::from_utf8_lossy(i2));
                 if i2.len() == input.len() {
                   break;
                 }
